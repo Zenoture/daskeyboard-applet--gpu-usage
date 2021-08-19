@@ -1,5 +1,6 @@
 // Library to track gpuUsage
-const smi = require('node-nvidia-smi');
+const parse = require('csv-parse/lib/sync'); 
+const exec = require('child_process').exec;
 
 // Library to send signal to Q keyboards
 const q = require('daskeyboard-applet');
@@ -43,23 +44,36 @@ class GPUUsage extends q.DesktopApp {
 
     async getGPUUsage() {
         return new Promise((resolve) => {
-            smi(function (err, data) {
-                var percent = -1
-                // handle errors
-                if (err) {
-                  logger.error(err);
-                }
+            try {
+                exec('nvidia-smi --format=csv --query-gpu=memory.used,memory.total', (err, stdout) => {
+                    var percent = -1
+                    // handle errors
+                    if (err) {
+                        logger.error(err);
+                        // handle NVIDIA compatibility
+                        return resolve(percent);
+                    }
 
-                // handle NVIDIA compatibility
-                if(data){
-                    var memory_object = data.nvidia_smi_log.gpu.fb_memory_usage
-                    var used = parseInt(memory_object.used.replace(' MiB', ''))
-                    var total = parseInt(memory_object.total.replace(' MiB', ''))
-                    percent = (used / total) * 100
-                }
+                    var entries = parse(stdout, {
+                        columns: true,
+                        skip_empty_lines: true, 
+                        trim: true
+                    });
 
-                resolve(percent)
-            });
+                    var memory_object = {
+                        used: entries[0]['memory.used [MiB]'],
+                        total: entries[0]['memory.total [MiB]']
+                    };
+                    var used = parseInt(memory_object.used.replace(' MiB', ''));
+                    var total = parseInt(memory_object.total.replace(' MiB', ''));
+                    percent = (used / total) * 100;
+
+                    resolve(percent);
+                });
+            } catch(err) {
+                logger.error(err);
+                resolve(-1);
+            }
         })
     }
 
